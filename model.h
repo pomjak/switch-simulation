@@ -68,6 +68,7 @@ class Packet : public Process
 public:
     Packet(std::string src, std::string dst, uint port) : src_port_idx(port), src_mac(src), dst_mac(dst) {}
     Packet(uint port) : src_port_idx(port), src_mac(""), dst_mac("") {}
+    Packet(Packet *p, uint port_to_send) : src_port_idx(p->src_port_idx), dst_port_idx(port_to_send),src_mac(p->src_mac), dst_mac(p->dst_mac), clone(true) {}
 
 private:
     double t0;
@@ -77,6 +78,7 @@ private:
     std::string dst_mac;
     size_t pkt_id;
     bool to_flood = false;
+    bool clone = false;
 
     void Behavior();
 
@@ -84,6 +86,7 @@ private:
     void send(uint port);
 
     void extract_mac();
+    void send_clone();
 };
 
 

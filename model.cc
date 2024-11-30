@@ -77,34 +77,41 @@ int CamTable::get_port(std::string mac)
  */
 void Packet::Behavior()
 {
+    if(clone)
+    {
+        send(dst_port_idx);
+        Cancel();
+        return;
+    }
+
     t0 = Time;
     pkt_id = ++pkt_count;
 
     // try to get one of the ports if open, otherwise drop this packet
     if (ingress_ports[src_port_idx].Busy())
     {
-        // Print("ingerss Port");
-        // Print(src_port_idx);
-        // Print("busy at time: ");
-        // Print(Time);
-        // Print("\n");
+        Print("ingerss Port");
+        Print(src_port_idx);
+        Print("busy at time: ");
+        Print(Time);
+        Print("\n");
         dropped_unavailable_count++;
         Cancel();
     }
     Seize(ingress_ports[src_port_idx], 1);
-    // Print("ingerss Port");
-    // Print(src_port_idx);
-    // Print("seized at time: ");
-    // Print(Time);
-    // Print("\n");
+    Print("ingerss Port");
+    Print(src_port_idx);
+    Print("seized at time: ");
+    Print(Time);
+    Print("\n");
     // Process packet from port to buffer
     Wait(cfg.port_delay);
     Release(ingress_ports[src_port_idx]);
-    // Print("ingerss Port");
-    // Print(src_port_idx);
-    // Print("released at time: ");
-    // Print(Time);
-    // Print("\n");
+    Print("ingerss Port");
+    Print(src_port_idx);
+    Print("released at time: ");
+    Print(Time);
+    Print("\n");
     // try to get buffer space, otherwise drop this packet
     if (!Buffer.Full())
     {
@@ -158,7 +165,7 @@ void Packet::Behavior()
     }
     else
     {
-       send(dst_port_idx);
+        send(dst_port_idx);
     }
     hist(Time - t0);
 }
@@ -169,11 +176,12 @@ void Packet::flood()
     {
         if (i != src_port_idx)
         {
-            send(i);
+            (new Packet(this,i))->Activate();
         }
     }
     pkt_flood_ids.push_back(pkt_id);
     flood_count++;
+    Cancel();
 }
 
 
@@ -232,7 +240,7 @@ void PacketGenerator::Behavior()
     std::string dst = mac_addresses[rnd_dst_mac_idx];
     // fprintf(stderr, "Packet from %lu to %lu\n", rnd_src_mac_idx, rnd_dst_mac_idx);
     (new Packet(src, dst, rnd_port_idx))->Activate();
-    // Activate(Time + Exponential(cfg.pkt_arrival_rate));
+    Activate(Time + Exponential(cfg.pkt_arrival_rate));
 }
 
 void print_help()
