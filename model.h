@@ -15,15 +15,14 @@
 
 struct Config
 {
-    size_t packets_to_send = 1000;
-    double pkt_arrival_rate = 160 microseconds;
+    double load = 0.5;
     double sim_duration = 1 seconds;
-    double port_delay = 512 nanoseconds;
-    // double mac_extract_time = 0.001;
     size_t num_ports = 5;
-    size_t buffer_capacity = 2048;
+    size_t num_gens = 5;
+    size_t buffer_capacity = 131072;
     size_t mac_table_size = 2048;
     size_t mac_addresses = 1000;
+    size_t packet_size = 0;
     std::string out_file = "model.out";
 };
 
@@ -66,9 +65,9 @@ extern CamTable table;
 class Packet : public Process
 {
 public:
-    Packet(std::string src, std::string dst, uint port) : src_port_idx(port), src_mac(src), dst_mac(dst) {}
-    Packet(uint port) : src_port_idx(port), src_mac(""), dst_mac("") {}
-    Packet(Packet *p, uint port_to_send) : src_port_idx(p->src_port_idx), dst_port_idx(port_to_send),src_mac(p->src_mac), dst_mac(p->dst_mac), clone(true) {}
+    Packet(std::string src, std::string dst, uint port, size_t size) : src_port_idx(port), src_mac(src), dst_mac(dst), pkt_size(size), port_delay((pkt_size * 8) / 1.0e3) {}
+    Packet(uint port, size_t s) : src_port_idx(port), src_mac(""), dst_mac(""), pkt_size(s) {}
+    Packet(Packet *p, uint port_to_send) : src_port_idx(p->src_port_idx), dst_port_idx(port_to_send), src_mac(p->src_mac), dst_mac(p->dst_mac), pkt_size(p->pkt_size), port_delay(p->port_delay), clone(true) {}
 
 private:
     double t0;
@@ -77,6 +76,8 @@ private:
     std::string src_mac;
     std::string dst_mac;
     size_t pkt_id;
+    size_t pkt_size;
+    double port_delay;
     bool to_flood = false;
     bool clone = false;
 
@@ -89,10 +90,12 @@ private:
     void send_clone();
 };
 
-
 class PacketGenerator : public Event
 {
-    int prev_port = -1;
+    size_t port;
 
     void Behavior();
+
+public:
+    PacketGenerator(int p) : port(p) {}
 };

@@ -5,7 +5,21 @@
 
 #include "model.h"
 
+// GLOBALS
 Config cfg;
+Facility *ingress_ports = nullptr;
+Facility *egress_ports = nullptr;
+Facility MacExtractor("MAC");
+Facility Encapsulator("ENC");
+Store Buffer("Shared Buffer", cfg.buffer_capacity);
+Histogram hist("Packet Lifetime", 1.1, 0.025, 50);
+Histogram hist2("Port Delay", 0, 0.025, 100);
+Histogram EnterTimes("EnterTimes", 0, 0.025, 100);
+Histogram PacketSizes("Packet Sizes", 64, 50, 50);
+
+CamTable table;
+std::vector<std::string> mac_addresses;
+std::vector<size_t> pkt_flood_ids;
 
 size_t pkt_count = 0;
 size_t dropped_unavailable_count = 0;
@@ -13,21 +27,6 @@ size_t dropped_tail_drop_count = 0;
 size_t dropped_processed_count = 0;
 size_t flood_count = 0;
 bool FailOpenState = false;
-
-// GLOBALS
-Facility *ingress_ports = nullptr;
-Facility *egress_ports = nullptr;
-Facility MacExtractor("MAC");
-Facility Encapsulator("ENC");
-
-Store Buffer("buffer", cfg.buffer_capacity);
-
-Histogram hist("hist", 1.1, 0.025, 50);
-
-CamTable table;
-
-std::vector<std::string> mac_addresses;
-std::vector<size_t> pkt_flood_ids;
 
 /**
  * @brief Helper fn to generate random mac addresses
@@ -88,45 +87,41 @@ void Packet::Behavior()
     t0 = Time;
     pkt_id = ++pkt_count;
 
+    hist2(port_delay);
+
     // try to get one of the ports if open, otherwise drop this packet
     if (ingress_ports[src_port_idx].Busy())
     {
-        // Print("ingerss Port");
-        // Print(src_port_idx);
-        // Print("busy at time: ");
-        // Print(Time);
-        // Print("\n");
         dropped_unavailable_count++;
         Cancel();
     }
     Seize(ingress_ports[src_port_idx], 1);
-
-    // Print("ingerss Port");
-    // Print(src_port_idx);
-    // Print("seized at time: ");
-    // Print(Time);
-    // Print("\n");
-    // Process packet from port to buffer
-    Wait(cfg.port_delay);
+    Wait(port_delay);
 
     Release(ingress_ports[src_port_idx]);
 
-    if (Buffer.Full())
+    double EnterTime = Time;
+    if (MacExtractor.Busy())
     {
-        dropped_tail_drop_count++;
-        Cancel();
+        if (Buffer.Full())
+        {
+            dropped_tail_drop_count++;
+            Cancel();
+        }
+        Enter(Buffer, pkt_size);
+        Seize(MacExtractor);
+        Leave(Buffer, pkt_size);
+        Wait(Uniform(300 nanoseconds, 400 nanoseconds));
+        Release(MacExtractor);
+    }
+    else
+    {
+        Seize(MacExtractor);
+        Wait(Uniform(300 nanoseconds, 400 nanoseconds));
+        Release(MacExtractor);
     }
 
-    Enter(Buffer);
-
-    // Print("ingerss Port");
-    // Print(src_port_idx);
-    // Print("released at time: ");
-    // Print(Time);
-    // Print("\n");
-    // // try to get buffer space, otherwise drop this packet
-
-    extract_mac();
+    // extract_mac();
 
     // Wait for CAM table
     Seize(table);
@@ -144,7 +139,7 @@ void Packet::Behavior()
     }
 
     // lookuo wait
-    Wait(Exponential(20 nanoseconds));
+    Wait(Uniform(20 nanoseconds, 40 nanoseconds));
     int dst_port = table.get_port(dst_mac);
     Release(table);
 
@@ -155,25 +150,43 @@ void Packet::Behavior()
     // Lookup dst mac
     if (dst_port == -1)
     {
-        // Flood
-        // flood();
         to_flood = true;
     }
     else
     {
         dst_port_idx = dst_port;
     }
-
-    if (FailOpenState || to_flood)
+    if (egress_ports[dst_port_idx].Busy())
     {
-        flood();
+        Priority = 1;
+        Enter(Buffer, pkt_size);
+        if (FailOpenState || to_flood)
+        {
+            flood();
+        }
+        else
+        {
+            Seize(egress_ports[dst_port_idx]);
+            Leave(Buffer, pkt_size);
+            Priority = 0;
+            Wait(port_delay);
+            Release(egress_ports[dst_port_idx]);
+        }
     }
     else
     {
-        send(dst_port_idx);
+        if (FailOpenState || to_flood)
+        {
+            flood();
+        }
+        else
+        {
+            send(dst_port_idx);
+        }
     }
 
-    Leave(Buffer);
+    
+    EnterTimes(Time - EnterTime);
     hist(Time - t0);
 }
 
@@ -188,66 +201,61 @@ void Packet::flood()
     }
     pkt_flood_ids.push_back(pkt_id);
     flood_count++;
-    // Leave(Buffer);
-    // Cancel();
 }
 
 void Packet::send(uint port)
 {
-    // if (Buffer.Full())
-    // {
-    //     dropped_processed_count++;
-    //     Cancel();
-    // }
-    // Enter(Buffer);
     Seize(egress_ports[port]);
-    // Print("egress Port");
-    // Print(port);
-    // Print("seized at time: ");
-    // Print(Time);
-    // Print("\n");
-
-    Wait(cfg.port_delay);
+    Wait(port_delay);
     Release(egress_ports[port]);
-
-    // Print("egress Port");
-    // Print(port);
-    // Print("released at time: ");
-    // Print(Time);
-    // Print("\n");
 }
 
 void Packet::extract_mac()
 {
-    // Enter(Buffer);
     Seize(MacExtractor);
-    Wait(Uniform(200 nanoseconds, 300 nanoseconds));
+    Leave(Buffer, pkt_size);
+    Wait(Uniform(300 nanoseconds, 400 nanoseconds));
     Release(MacExtractor);
-    // Leave(Buffer);
 }
 
 void PacketGenerator::Behavior()
 {
-    size_t rnd_port_idx = size_t(Random() * cfg.num_ports);
     size_t rnd_src_mac_idx = size_t(Random() * cfg.mac_addresses);
     size_t rnd_dst_mac_idx = size_t(Random() * cfg.mac_addresses);
 
-    // size_t rnd_src_mac_idx = size_t(rand() % mac_addresses->size())
+    size_t pkt_size = cfg.packet_size;
+    if (pkt_size == 0)
+    {
+        double rand = Random();
+        if (rand < 0.5)
+        {
+            pkt_size = 64; // Min Ethernet frame
+        }
+        else if (rand < 0.9)
+        {
+            pkt_size = size_t(Uniform(65, 500));
+        }
+        else
+        {
+            pkt_size = size_t(Uniform(501, 1518)); // Max standard Ethernet frame
+        }
+    }
+
+    PacketSizes(pkt_size);
 
     if (rnd_src_mac_idx == rnd_dst_mac_idx)
     {
         rnd_dst_mac_idx = (rnd_dst_mac_idx + 1) % (cfg.mac_addresses);
     }
-    if (int(rnd_port_idx) == prev_port)
-    {
-        rnd_port_idx = (rnd_port_idx + 1) % cfg.num_ports;
-    }
-    prev_port = rnd_port_idx;
+
     std::string src = mac_addresses[rnd_src_mac_idx];
     std::string dst = mac_addresses[rnd_dst_mac_idx];
-    // fprintf(stderr, "Packet from %lu to %lu\n", rnd_src_mac_idx, rnd_dst_mac_idx);
-    (new Packet(src, dst, rnd_port_idx))->Activate();
-    Activate(Time + Exponential(cfg.pkt_arrival_rate));
+
+    // Create new packet and schedule next arrival
+    (new Packet(src, dst, port, pkt_size))->Activate();
+
+    double next_arrival = ((pkt_size * 8) / 1.0e3) / (cfg.load);
+    Activate(Time + next_arrival);
 }
 
 void print_help()
@@ -255,12 +263,13 @@ void print_help()
     printf("Usage: model [OPTIONS]\n");
     printf("Options:\n");
     printf("  -n <num_ports>               Number of ports\n");
-    printf("  -r <pkt_arrival_rate USEC>   Packet arrival rate\n");
+    // printf("  -p <packets per sec>         Pps to send\n");
     printf("  -t <sim_duration SEC>        Duration of the Simulation\n");
     printf("  -b <buffer_capacity>         Buffer capacity\n");
     printf("  -m <mac_table_size>          MAC table size\n");
-    printf("  -d <port_delay USEC>         Port delay\n");
     printf("  -c <mac_count>               Number of mac addr to generate\n");
+    printf("  -s <packet_size>             Packet size\n");
+    printf("  -l <load percent>            Load percent\n");
     printf("  -o <out_file>                Output file\n");
 }
 
@@ -268,27 +277,21 @@ Config parse_args(int argc, char *argv[])
 {
     Config config;
     int c;
-    while ((c = getopt(argc, argv, "n:r:t:b:m:d:c:p:")) != -1)
+    while ((c = getopt(argc, argv, "n:t:b:m:c:s:l:g:")) != -1)
     {
         switch (c)
         {
         case 'n':
             config.num_ports = atoi(optarg);
             break;
-        case 'r':
-            config.pkt_arrival_rate = atof(optarg) microseconds;
-            break;
         case 't':
             config.sim_duration = atof(optarg) seconds;
             break;
         case 'b':
-            config.buffer_capacity = atoi(optarg);
+            config.buffer_capacity = atoll(optarg);
             break;
         case 'm':
             config.mac_table_size = atoi(optarg);
-            break;
-        case 'd':
-            config.port_delay = atof(optarg) microseconds;
             break;
         case 'o':
             config.out_file = std::string(optarg);
@@ -296,8 +299,14 @@ Config parse_args(int argc, char *argv[])
         case 'c':
             config.mac_addresses = atoi(optarg);
             break;
-        case 'p':
-            config.packets_to_send = atoi(optarg);
+        case 'l':
+            config.load = atof(optarg);
+            break;
+        case 's':
+            config.packet_size = atoi(optarg);
+            break;
+        case 'g':
+            config.num_gens = atoi(optarg);
             break;
         default:
             print_help();
@@ -311,6 +320,7 @@ int main(int argc, char *argv[])
 {
     cfg = parse_args(argc, argv);
     mac_addresses = generateMacAddresses(cfg.mac_addresses);
+    
     Facility iports[cfg.num_ports];
     ingress_ports = iports;
 
@@ -339,8 +349,14 @@ int main(int argc, char *argv[])
         egress_ports[i].SetName("Egress Port " + std::to_string(i));
     }
 
-    (new PacketGenerator())->Activate();
+    for (size_t i = 0; i < cfg.num_gens; i++)
+    {
+        auto p = new PacketGenerator(i);
+        p->Activate();
+    }
+
     Run();
+
     for (size_t i = 0; i < cfg.num_ports; i++)
     {
         ingress_ports[i].Output();
@@ -356,6 +372,9 @@ int main(int argc, char *argv[])
     Encapsulator.Output();
     table.Output();
     hist.Output();
+    hist2.Output();
+    EnterTimes.Output();
+    PacketSizes.Output();
 
     Print("\nTotal Packets: ");
     Print(pkt_count);
