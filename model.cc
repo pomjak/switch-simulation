@@ -285,7 +285,7 @@ Config parse_args(int argc, char *argv[])
 {
     Config config;
     int c;
-    while ((c = getopt(argc, argv, "n:t:b:m:c:s:l:g:")) != -1)
+    while ((c = getopt(argc, argv, "n:t:b:m:c:s:l:g:o:")) != -1)
     {
         switch (c)
         {
