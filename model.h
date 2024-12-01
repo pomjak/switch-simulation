@@ -65,7 +65,7 @@ extern CamTable table;
 class Packet : public Process
 {
 public:
-    Packet(std::string src, std::string dst, uint port, size_t size) : src_port_idx(port), src_mac(src), dst_mac(dst), pkt_size(size), port_delay((pkt_size * 8) / 1.0e3) {}
+    Packet(std::string src, std::string dst, uint port, size_t size) : src_port_idx(port), dst_port_idx(0), src_mac(src), dst_mac(dst), pkt_size(size), port_delay((pkt_size * 8) / 1.0e3) {}
     Packet(uint port, size_t s) : src_port_idx(port), src_mac(""), dst_mac(""), pkt_size(s) {}
     Packet(Packet *p, uint port_to_send) : src_port_idx(p->src_port_idx), dst_port_idx(port_to_send), src_mac(p->src_mac), dst_mac(p->dst_mac), pkt_size(p->pkt_size), port_delay(p->port_delay), clone(true) {}
 

@@ -14,7 +14,6 @@ Facility Encapsulator("ENC");
 Store Buffer("Shared Buffer", cfg.buffer_capacity);
 Histogram hist("Packet Lifetime", 1.1, 0.025, 50);
 Histogram hist2("Port Delay", 0, 0.025, 100);
-Histogram EnterTimes("EnterTimes", 0, 0.025, 100);
 Histogram PacketSizes("Packet Sizes", 64, 50, 50);
 
 CamTable table;
@@ -79,9 +78,28 @@ void Packet::Behavior()
 
     if (clone)
     {
-        send(dst_port_idx);
+        if (egress_ports[dst_port_idx].Busy())
+        {
+            if (Buffer.Full())
+            {
+                dropped_tail_drop_count++;
+                Cancel();
+            }
+
+            Priority = 1;
+            Enter(Buffer, pkt_size);
+
+            Seize(egress_ports[dst_port_idx]);
+            Leave(Buffer, pkt_size);
+            Priority = 0;
+            Wait(port_delay);
+            Release(egress_ports[dst_port_idx]);
+        }
+        else
+        {
+            send(dst_port_idx);
+        }
         Cancel();
-        return;
     }
 
     t0 = Time;
@@ -100,7 +118,6 @@ void Packet::Behavior()
 
     Release(ingress_ports[src_port_idx]);
 
-    double EnterTime = Time;
     if (MacExtractor.Busy())
     {
         if (Buffer.Full())
@@ -121,7 +138,6 @@ void Packet::Behavior()
         Release(MacExtractor);
     }
 
-    // extract_mac();
 
     // Wait for CAM table
     Seize(table);
@@ -148,45 +164,37 @@ void Packet::Behavior()
     Release(Encapsulator);
 
     // Lookup dst mac
-    if (dst_port == -1)
+    if (dst_port == -1 || FailOpenState)
     {
-        to_flood = true;
+        // to_flood = true;
+        flood();
     }
     else
     {
         dst_port_idx = dst_port;
-    }
-    if (egress_ports[dst_port_idx].Busy())
-    {
-        Priority = 1;
-        Enter(Buffer, pkt_size);
-        if (FailOpenState || to_flood)
+        if (egress_ports[dst_port_idx].Busy())
         {
-            flood();
-        }
-        else
-        {
+            if (Buffer.Full())
+            {
+                dropped_tail_drop_count++;
+                Cancel();
+            }
+            Priority = 1;
+            Enter(Buffer, pkt_size);
+
             Seize(egress_ports[dst_port_idx]);
             Leave(Buffer, pkt_size);
             Priority = 0;
             Wait(port_delay);
             Release(egress_ports[dst_port_idx]);
         }
-    }
-    else
-    {
-        if (FailOpenState || to_flood)
-        {
-            flood();
-        }
         else
         {
+
             send(dst_port_idx);
         }
     }
 
-    
-    EnterTimes(Time - EnterTime);
     hist(Time - t0);
 }
 
@@ -320,7 +328,7 @@ int main(int argc, char *argv[])
 {
     cfg = parse_args(argc, argv);
     mac_addresses = generateMacAddresses(cfg.mac_addresses);
-    
+
     Facility iports[cfg.num_ports];
     ingress_ports = iports;
 
@@ -328,6 +336,11 @@ int main(int argc, char *argv[])
     egress_ports = eports;
 
     if (ingress_ports == nullptr)
+    {
+        fprintf(stderr, "Error: Ports not initialized\n");
+        return 1;
+    }
+    if (egress_ports == nullptr)
     {
         fprintf(stderr, "Error: Ports not initialized\n");
         return 1;
@@ -373,7 +386,6 @@ int main(int argc, char *argv[])
     table.Output();
     hist.Output();
     hist2.Output();
-    EnterTimes.Output();
     PacketSizes.Output();
 
     Print("\nTotal Packets: ");
@@ -398,13 +410,6 @@ int main(int argc, char *argv[])
     Print(flood_count);
     Print("\n");
 
-    // Print("Flooded Indices: ");
-    // for (size_t i = 0; i < pkt_flood_ids.size(); i++)
-    // {
-    //     Print(pkt_flood_ids[i]);
-    //     Print(" ");
-    // }
-    // Print("\n");
 
     Print("Cam Table Size: ");
     Print(table.size());
@@ -414,13 +419,5 @@ int main(int argc, char *argv[])
     Print(mac_addresses.size());
     Print("\n");
 
-    // Print("Cam Table Contents: \n");
-    // for (auto const &pair : table.table)
-    // {
-    //     Print(pair.first.c_str());
-    //     Print(" ");
-    //     Print(pair.second);
-    //     Print("\n");
-    // }
     return 0;
 }
