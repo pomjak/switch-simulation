@@ -22,7 +22,7 @@ Facility Encapsulator("ENC");
 
 Store Buffer("buffer", cfg.buffer_capacity);
 
-Histogram hist("hist", 1.4, 0.05, 50);
+Histogram hist("hist", 1.1, 0.025, 50);
 
 CamTable table;
 
@@ -77,7 +77,8 @@ int CamTable::get_port(std::string mac)
  */
 void Packet::Behavior()
 {
-    if(clone)
+
+    if (clone)
     {
         send(dst_port_idx);
         Cancel();
@@ -90,38 +91,42 @@ void Packet::Behavior()
     // try to get one of the ports if open, otherwise drop this packet
     if (ingress_ports[src_port_idx].Busy())
     {
-        Print("ingerss Port");
-        Print(src_port_idx);
-        Print("busy at time: ");
-        Print(Time);
-        Print("\n");
+        // Print("ingerss Port");
+        // Print(src_port_idx);
+        // Print("busy at time: ");
+        // Print(Time);
+        // Print("\n");
         dropped_unavailable_count++;
         Cancel();
     }
     Seize(ingress_ports[src_port_idx], 1);
-    Print("ingerss Port");
-    Print(src_port_idx);
-    Print("seized at time: ");
-    Print(Time);
-    Print("\n");
+
+    // Print("ingerss Port");
+    // Print(src_port_idx);
+    // Print("seized at time: ");
+    // Print(Time);
+    // Print("\n");
     // Process packet from port to buffer
     Wait(cfg.port_delay);
+
     Release(ingress_ports[src_port_idx]);
-    Print("ingerss Port");
-    Print(src_port_idx);
-    Print("released at time: ");
-    Print(Time);
-    Print("\n");
-    // try to get buffer space, otherwise drop this packet
-    if (!Buffer.Full())
-    {
-        extract_mac();
-    }
-    else
+
+    if (Buffer.Full())
     {
         dropped_tail_drop_count++;
         Cancel();
     }
+
+    Enter(Buffer);
+
+    // Print("ingerss Port");
+    // Print(src_port_idx);
+    // Print("released at time: ");
+    // Print(Time);
+    // Print("\n");
+    // // try to get buffer space, otherwise drop this packet
+
+    extract_mac();
 
     // Wait for CAM table
     Seize(table);
@@ -167,6 +172,8 @@ void Packet::Behavior()
     {
         send(dst_port_idx);
     }
+
+    Leave(Buffer);
     hist(Time - t0);
 }
 
@@ -176,48 +183,48 @@ void Packet::flood()
     {
         if (i != src_port_idx)
         {
-            (new Packet(this,i))->Activate();
+            (new Packet(this, i))->Activate();
         }
     }
     pkt_flood_ids.push_back(pkt_id);
     flood_count++;
-    Cancel();
+    // Leave(Buffer);
+    // Cancel();
 }
-
 
 void Packet::send(uint port)
 {
-    if (Buffer.Full())
-    {
-        dropped_processed_count++;
-        Cancel();
-    }
-    Enter(Buffer);
+    // if (Buffer.Full())
+    // {
+    //     dropped_processed_count++;
+    //     Cancel();
+    // }
+    // Enter(Buffer);
     Seize(egress_ports[port]);
-    Print("egress Port");
-    Print(port);
-    Print("seized at time: ");
-    Print(Time);
-    Print("\n");
-    Leave(Buffer);
+    // Print("egress Port");
+    // Print(port);
+    // Print("seized at time: ");
+    // Print(Time);
+    // Print("\n");
+
     Wait(cfg.port_delay);
     Release(egress_ports[port]);
-    Print("egress Port");
-    Print(port);
-    Print("released at time: ");
-    Print(Time);
-    Print("\n");
+
+    // Print("egress Port");
+    // Print(port);
+    // Print("released at time: ");
+    // Print(Time);
+    // Print("\n");
 }
 
 void Packet::extract_mac()
 {
-    Enter(Buffer);
+    // Enter(Buffer);
     Seize(MacExtractor);
-    Leave(Buffer);
     Wait(Uniform(200 nanoseconds, 300 nanoseconds));
     Release(MacExtractor);
+    // Leave(Buffer);
 }
-
 
 void PacketGenerator::Behavior()
 {
