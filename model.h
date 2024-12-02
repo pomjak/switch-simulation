@@ -89,6 +89,8 @@ private:
 
     void send_clone();
     void tail_drop();
+    void processed_drop();
+    void port_drop(); 
     void encapsulate();
     void send_outgoing(int dst_port);
 

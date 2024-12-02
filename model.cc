@@ -79,10 +79,7 @@ void Packet::send_clone()
     if (egress_ports[dst_port_idx].Busy())
     {
         if (Buffer.Full())
-        {
-            dropped_tail_drop_count++;
-            Cancel();
-        }
+            processed_drop();
 
         Priority = 1;
         Enter(Buffer, pkt_size);
@@ -113,9 +110,8 @@ void Packet::send_outgoing(int p)
         if (egress_ports[dst_port_idx].Busy())
         {
             if (Buffer.Full())
-            {
-                tail_drop();
-            }
+                processed_drop();
+
             Priority = 1;
             Enter(Buffer, pkt_size);
 
@@ -127,13 +123,24 @@ void Packet::send_outgoing(int p)
         }
         else
         {
-
             send(dst_port_idx);
         }
     }
 }
 
 void Packet::tail_drop()
+{
+    dropped_tail_drop_count++;
+    Cancel();
+}
+
+void Packet::processed_drop()
+{
+    dropped_processed_count++;
+    Cancel();
+}
+
+void Packet::port_drop()
 {
     dropped_unavailable_count++;
     Cancel();
@@ -148,7 +155,7 @@ void Packet::encapsulate()
 
 int Packet::cam_lookup(std::string mac)
 {
-    // lookuo wait
+    // lookup wait
     Wait(Uniform(20 nanoseconds, 40 nanoseconds));
     int dst_port = table.get_port(mac);
     Release(table);
@@ -177,7 +184,7 @@ void Packet::process_incoming()
 {
     // try to get one of the ports if open, otherwise drop this packet
     if (ingress_ports[src_port_idx].Busy())
-        tail_drop();
+        port_drop();
 
     Seize(ingress_ports[src_port_idx], 1);
     Wait(port_delay);

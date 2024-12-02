@@ -5,7 +5,7 @@ LDFLAGS = -lsimlib -lm
 SRC = model.cc
 HEADERS = model.h
 EXEC = model
-EXPERIMENTS = exp1 exp2 exp3 exp4
+EXPERIMENTS = exp1 exp2 exp3 exp4 exp5
 FOLDER = experiments
 
 all: 
