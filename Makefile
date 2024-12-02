@@ -39,6 +39,6 @@ clean:
 	rm -rf $(FOLDER)
 
 zip: 
-	zip xpomsa00.zip $(SRC) $(HEADERS) Makefile
+	zip xpomsa00.zip $(SRC) $(HEADERS) Makefile experiments/*
 
 .PHONY: all $(EXPERIMENTS)
