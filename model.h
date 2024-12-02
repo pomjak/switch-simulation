@@ -21,8 +21,9 @@ struct Config
     size_t num_gens = 5;
     size_t buffer_capacity = 131072;
     size_t mac_table_size = 2048;
-    size_t mac_addresses = 1000;
+    size_t mac_addresses = 5;
     size_t packet_size = 0;
+    size_t encap = 1;
     std::string out_file = "model.out";
 };
 
@@ -34,8 +35,8 @@ extern size_t dropped_processed_count;
 extern size_t flood_count;
 extern Facility *ingress_ports;
 extern Facility *egress_ports;
-extern Facility MacExtractor;
-extern Facility Encapsulator;
+extern Store MacExtractor;
+extern Store Encapsulator;
 extern Store Buffer;
 extern bool FailOpenState;
 extern std::vector<std::string> mac_addresses;
@@ -86,8 +87,15 @@ private:
     void flood();
     void send(uint port);
 
-    void extract_mac();
     void send_clone();
+    void tail_drop();
+    void encapsulate();
+    void send_outgoing(int dst_port);
+
+    int cam_lookup(std::string mac);
+    void cam_update();
+    void process_incoming();    
+    void extract_mac(); 
 };
 
 class PacketGenerator : public Event
